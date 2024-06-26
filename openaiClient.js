@@ -32,12 +32,12 @@ async function processEmail(props) {
 
     const response = await client.chat.completions.create(requestData);
     const fullResponse = response.choices[0].message.content.trim();
-
+    
     // Extract state and reply from the response
     const stateMatch = fullResponse.match(/State:\s*(\d)/);
     const replyMatch = fullResponse.match(/Reply:\s*(.*)/);
 
-    const state = stateMatch ? stateMatch[1] : "Error";
+    const state = stateMatch ? stateMatch[1] : "3";
     const reply = replyMatch ? replyMatch[1] : "";
 
     return { state, reply }; // Return both the state and the reply

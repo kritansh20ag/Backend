@@ -2,7 +2,7 @@ const express = require("express");
 const session = require("express-session");
 const { google } = require("googleapis");
 const path = require("path");
-const OpenAI = require("./openaiClient"); // Import your OpenAI client
+const OpenAI = require("./openaiClient"); // Import  OpenAI client
 const { sendReply } = require("./gmailclient"); // Import the sendReply function
 const msal = require("@azure/msal-node");
 const { msalConfig, authRequest, tokenRequest } = require("./outlookAuth");
@@ -29,11 +29,13 @@ app.use(session({
   secret: secret_key,
   resave: false,
   saveUninitialized: true,
-  cookie: { secure: false } // Set to true if using HTTPS
+  cookie: { secure: false } 
 }));
 
-// Serve static files
-app.use(express.static("public"));
+app.get("/", function(req, res) {
+  res.send("Hello Reach Inbox Team, I hope you would like my efforts and work");
+});
+
 
 // Route to initiate OAuth2 flow
 app.get("/auth/google", (req, res) => {
@@ -79,7 +81,7 @@ app.get("/emails", async (req, res) => {
     const gmail = google.gmail({ version: "v1", auth: oauth2Client });
     const response = await gmail.users.messages.list({
       userId: "me",
-      maxResults: 2,
+      maxResults: 10,
       q: "is:unread", // Only fetch unread emails
     });
 
@@ -168,7 +170,55 @@ app.get("/auth/outlook/callback", (req, res) => {
     });
 });
 
+// Route to read Outlook emails
+app.get("/outlookEmails", async (req, res) => {
+  const tokenResponse = req.app.locals.outlookTokens;
+  const accessToken = tokenResponse.accessToken;
 
+  const client = require("@microsoft/microsoft-graph-client").Client.init({
+    authProvider: (done) => {
+      done(null, accessToken);
+    },
+  });
+
+  try {
+    const messages = await client.api("/me/mailFolders/inbox/messages").top(20).filter("isRead eq false").get();
+
+    const emails = await Promise.all(
+      messages.value.map(async (message) => {
+        const from = message.from.emailAddress.address;
+        const subject = message.subject;
+        const snippet = message.bodyPreview;
+
+        const { state, reply } = await OpenAI.processEmail({ snippet });
+
+        if (state === "1" && reply) {
+          await client.api(`/me/messages/${message.id}/reply`).post({
+            comment: reply,
+            toRecipients: [{ emailAddress: { address: from } }],
+          });
+
+          await client.api(`/me/messages/${message.id}`).update({
+            isRead: true,
+          });
+        }
+
+        return {
+          id: message.id,
+          snippet: snippet,
+          from: from,
+          label: state,
+          reply: reply,
+        };
+      })
+    );
+
+    res.json({ emails });
+  } catch (err) {
+    console.error("Error reading Outlook emails", err);
+    res.status(500).send("Failed to read emails");
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
